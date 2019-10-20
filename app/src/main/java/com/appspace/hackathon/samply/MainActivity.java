@@ -7,24 +7,33 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.support.annotation.RequiresApi;
 import android.support.v4.content.FileProvider;
 import android.support.v7.app.AppCompatActivity;
 import android.view.View;
 import android.widget.ImageView;
+import android.widget.Toast;
+
+import org.tensorflow.lite.examples.classification.env.Logger;
+import org.tensorflow.lite.examples.classification.tflite.Classifier;
 
 import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
+    private static final Logger LOGGER = new Logger();
     static final int REQUEST_TAKE_PHOTO = 1;
     static final int GALLERY_REQUEST_CODE = 2;
     ImageView imageView;
     String currentPhotoPath;
+    private long lastProcessingTimeMs;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,25 +67,43 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode == REQUEST_TAKE_PHOTO && resultCode == RESULT_OK) {
-            setPic();
-//            File file = new File(currentPhotoPath);
-            galleryAddPic();
-//            Bitmap bitmap = null;
-//            try {
-//                bitmap = MediaStore.Images.Media
-//                        .getBitmap(getApplication().getContentResolver(), Uri.fromFile(file));
-//                if (bitmap != null) {
-//                    imageView.setImageBitmap(bitmap);
-//                }
-//            } catch (IOException e) {
-//                e.printStackTrace();
-//            }
-        }
-        if (requestCode == GALLERY_REQUEST_CODE && resultCode == RESULT_OK) {
-            //data.getData returns the content URI for the selected Image
-            Uri selectedImage = data.getData();
-            imageView.setImageURI(selectedImage);
+
+        if( resultCode == RESULT_OK) {
+            if (requestCode == REQUEST_TAKE_PHOTO ) {
+                setPic();
+                galleryAddPic();
+            }
+            if (requestCode == GALLERY_REQUEST_CODE ) {
+                Uri selectedImage = data.getData();
+                imageView.setImageURI(selectedImage);
+            }
+            Classifier classifier = null;
+            try {
+                LOGGER.d(
+                        "Creating classifier (model=%s, device=%s, numThreads=%d)", Classifier.Model.FLOAT, Classifier.Device.CPU , 1);
+                 classifier = Classifier.create(this, Classifier.Model.FLOAT, Classifier.Device.CPU , 1);
+            } catch (Exception e) {
+                LOGGER.e(e, "Failed to create classifier.");
+            }
+            if(classifier !=null) {
+                File image = new File(currentPhotoPath);
+                BitmapFactory.Options bmOptions = new BitmapFactory.Options();
+                Bitmap bitmap = BitmapFactory.decodeFile(image.getAbsolutePath(),bmOptions);
+                Bitmap croppedBitmap = Bitmap.createBitmap(bitmap, 0,0, classifier.getImageSizeX(), classifier.getImageSizeY());
+                final long startTime = SystemClock.uptimeMillis();
+                 List<Classifier.Recognition> results = new ArrayList<Classifier.Recognition>();
+                try {
+                    results=classifier.recognizeImage(croppedBitmap);
+                }
+                catch(Exception ex){
+                    LOGGER.e(ex, "Failed to create classifier.");
+
+                }
+                lastProcessingTimeMs = SystemClock.uptimeMillis() - startTime;
+                LOGGER.v("Detect: %s", results);
+            } else {
+                Toast.makeText(this, "Something went wrong!", Toast.LENGTH_SHORT).show();
+            }
         }
     }
 
